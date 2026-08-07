@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <title>Stadium Seat Demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <main class="stage" id="stage">
+        <p class="stage-msg" id="stage-msg">Loading layout…</p>
+        <aside class="legend" id="legend" data-open="false" hidden>
+          <button
+            type="button"
+            class="legend-toggle"
+            id="legend-toggle"
+            aria-expanded="false"
+            aria-controls="legend-body"
+          >
+            <span class="legend-title">Zones</span>
+            <span class="legend-range" id="legend-range"></span>
+            <span class="legend-chevron" aria-hidden="true"></span>
+          </button>
+          <div class="legend-body" id="legend-body">
+            <ul class="legend-list" id="legend-list"></ul>
+          </div>
+        </aside>
+        <p class="hint" id="hint">
+          Drag to pan · scroll or pinch to zoom · tap seats, or a section to buy
+          by quantity
+        </p>
+        <p class="toast" id="toast" hidden></p>
+      </main>
+
+      <footer class="bottombar" id="bottombar" data-open="false">
+        <div class="bb-info">
+          <div class="bb-head">
+            <span class="bb-swatch"></span>
+            <div class="bb-text">
+              <span class="bb-label"></span>
+              <span class="bb-zone"></span>
+            </div>
+            <span class="bb-price"></span>
+            <button
+              type="button"
+              class="bb-clear"
+              title="Clear selection (Esc)"
+            >
+              ×
+            </button>
+          </div>
+          <div class="bb-qty" hidden>
+            <button
+              type="button"
+              class="bb-step"
+              data-step="-1"
+              aria-label="One fewer"
+            >
+              −
+            </button>
+            <span class="bb-qty-value" aria-live="polite">1</span>
+            <button
+              type="button"
+              class="bb-step"
+              data-step="1"
+              aria-label="One more"
+            >
+              +
+            </button>
+          </div>
+          <ul class="bb-chips" hidden></ul>
+        </div>
+      </footer>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

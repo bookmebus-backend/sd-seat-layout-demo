@@ -1,0 +1,567 @@
+:root {
+  /* Poppins comes from Google Fonts — the fallbacks keep the page usable
+     offline, which is the demo's only network dependency. */
+  --font:
+    "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --bar-h: 0px; /* measured height of the open bottom bar, for the toast */
+  --bg: #16181d;
+  --panel: #1e2128;
+  --panel-2: #262a33;
+  --line: #343945;
+  --text: #eceef2;
+  --muted: #9aa1ae;
+  --accent: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overscroll-behavior: none;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.4 var(--font);
+  -webkit-text-size-adjust: 100%;
+}
+
+/* The bar overlays the map rather than taking a grid row, so showing and hiding
+   it slides a layer instead of reflowing (and re-fitting) the whole stage. */
+.app {
+  position: relative;
+  display: grid;
+  grid-template-rows: 1fr;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* ---------- stage ---------- */
+
+.stage {
+  position: relative;
+  overflow: hidden;
+  background: #5f5f5f;
+  /* the pan/pinch handlers own every gesture here */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.stage > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.stage-msg {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  margin: 0;
+  color: #fff;
+  text-align: center;
+  padding: 24px;
+}
+
+.stage-msg[hidden] {
+  display: none;
+}
+
+/* The hint is the opening instruction and disappears on first interaction; the
+   toast reuses its pill for transient feedback afterwards, so they never
+   compete for the same spot. */
+.hint,
+.toast {
+  position: absolute;
+  left: 50%;
+  /* ride above the bottom bar instead of disappearing behind it */
+  bottom: calc(var(--bar-h) + 10px);
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.55);
+  color: #e7e9ee;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  transition:
+    opacity 0.4s,
+    bottom 280ms var(--ease);
+}
+
+.toast {
+  background: rgb(0 0 0 / 0.78);
+  font-weight: 500;
+}
+
+.hint[hidden],
+.toast[hidden] {
+  display: block;
+  opacity: 0;
+}
+
+@media (max-width: 560px) {
+  .hint,
+  .toast {
+    font-size: 11px;
+    max-width: calc(100% - 24px);
+    white-space: normal;
+    text-align: center;
+  }
+}
+
+/* ---------- legend ---------- */
+
+.legend {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  left: 10px;
+  max-width: calc(100% - 20px);
+  border-radius: 12px;
+  background: rgb(22 24 29 / 0.9);
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.3);
+  overflow: hidden;
+  /* the panel itself eases between its collapsed and expanded widths */
+  transition: background 200ms ease;
+}
+
+.legend-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.legend-title {
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* the collapsed pill still answers "what does a ticket cost here?" */
+.legend-range {
+  margin-left: auto;
+  color: var(--text);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  opacity: 1;
+  transition: opacity 200ms ease;
+}
+
+.legend[data-open="true"] .legend-range {
+  opacity: 0;
+}
+
+.legend-chevron {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-right: 1.6px solid var(--muted);
+  border-bottom: 1.6px solid var(--muted);
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform 280ms var(--ease);
+}
+
+.legend[data-open="true"] .legend-chevron {
+  transform: translateY(1px) rotate(225deg);
+}
+
+/*
+ * Height is animated from a measured pixel value set in JS rather than the
+ * usual 0fr -> 1fr grid trick. That trick collapses here: `overflow: hidden`
+ * zeroes the item's contribution, so the flexible track resolves to nothing but
+ * the padding and the panel opens 10px tall. `display` cannot be transitioned
+ * and `max-height` needs a magic number, so a measured height it is.
+ */
+.legend-body {
+  height: 0;
+  overflow: hidden;
+  transition: height 280ms var(--ease);
+}
+
+.legend-list {
+  margin: 0;
+  padding: 0 12px 10px;
+  list-style: none;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.legend[data-open="true"] .legend-list {
+  opacity: 1;
+  transition: opacity 220ms ease 80ms;
+}
+
+.legend-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+  white-space: nowrap;
+}
+
+.legend-list li + li {
+  border-top: 1px solid rgb(255 255 255 / 0.06);
+}
+
+.legend-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.legend-name b {
+  font-weight: 500;
+}
+
+.legend-name small {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.legend-list em {
+  margin-left: auto;
+  padding-left: 16px;
+  font-style: normal;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex: none;
+}
+
+/* ---------- bottom bar ---------- */
+
+.bottombar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  padding: 12px 14px;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -8px 24px rgb(0 0 0 / 0.35);
+
+  transform: translateY(100%);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform 280ms var(--ease),
+    opacity 180ms ease,
+    visibility 0s linear 280ms;
+}
+
+.bottombar[data-open="true"] {
+  transform: translateY(0);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    transform 280ms var(--ease),
+    opacity 180ms ease,
+    visibility 0s;
+}
+
+.bb-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.bb-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.bb-swatch {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  flex: none;
+}
+
+.bb-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.bb-label {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+
+.bb-zone {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.bb-price {
+  margin-left: auto;
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.bb-clear {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* ---------- quantity stepper ---------- */
+
+.bb-qty {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bb-qty[hidden] {
+  display: none;
+}
+
+.bb-step {
+  width: 40px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.bb-step:active:not(:disabled) {
+  background: #333846;
+}
+
+/* a stepper that silently stops responding reads as broken — show the bound */
+.bb-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.bb-qty-value {
+  min-width: 40px;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- selected-seat chips ---------- */
+
+.bb-chips {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0 0 2px;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.bb-chips[hidden] {
+  display: none;
+}
+
+.bb-chips li {
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: 30px;
+  padding-left: 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.bb-chips button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.bb-chips button:hover {
+  color: var(--text);
+}
+
+/* ---------- svg map ---------- */
+/*
+ * --k is the inverse of the current px-per-user-unit scale. Multiplying a
+ * length by it pins that length to a constant on-screen size, so labels and
+ * outlines stay legible instead of ballooning as the viewBox shrinks.
+ */
+
+.stage svg {
+  --k: 1;
+}
+
+[data-kind] {
+  cursor: pointer;
+}
+
+/* non-scaling-stroke gets constant on-screen width from the renderer itself.
+   Sizing it with calc(Npx * var(--k)) instead meant every zoom frame had to
+   rewrite --k and re-style all 39 sections. */
+[data-kind="section"] {
+  stroke: #23262d;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+  pointer-events: fill;
+}
+
+[data-kind="seat"] {
+  /* a transparent stroke widens the hit area of a 10px dot to a finger-sized
+     13x13 tile without changing how it looks */
+  stroke: transparent;
+  stroke-width: 3;
+  pointer-events: all;
+}
+
+@media (hover: hover) {
+  [data-kind="section"]:hover {
+    stroke: #ffffffaa;
+    stroke-width: 2;
+  }
+
+  [data-kind="seat"]:hover {
+    stroke: #ffffffaa;
+  }
+}
+
+[data-kind="section"].is-selected {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+
+[data-kind="seat"].is-selected {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+/* ---------- svg labels ---------- */
+
+#labels {
+  pointer-events: none;
+  font-family: var(--font);
+  font-weight: 600;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.lbl-section,
+.lbl-block {
+  fill: #fff;
+  stroke: #1a1c22;
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+  paint-order: stroke fill;
+}
+
+.lbl-section {
+  font-size: calc(13px * var(--k));
+}
+
+.lbl-block {
+  font-size: calc(15px * var(--k));
+}
+
+/* row letters and seat numbers are pinned to the geometry, not the screen:
+   they read as part of the seat grid and only appear once it is zoomed in */
+.lbl-row {
+  font-size: 9px;
+  fill: #fff;
+  stroke: #1a1c22;
+  stroke-width: 1.4;
+  paint-order: stroke fill;
+  text-anchor: end;
+}
+
+.lbl-seat {
+  font-size: 5px;
+  font-weight: 500;
+  fill: #1a1c22;
+}
+
+/* The three bands stack 66 units apart, which is a couple of pixels at
+   full-stadium zoom, so their titles collide until the floor is zoomed into. */
+.lbl-block,
+.lbl-row,
+.lbl-seat {
+  display: none;
+}
+
+svg[data-lod="1"] .lbl-block,
+svg[data-lod="1"] .lbl-row,
+svg[data-lod="2"] .lbl-block,
+svg[data-lod="2"] .lbl-row,
+svg[data-lod="2"] .lbl-seat {
+  display: inline;
+}
