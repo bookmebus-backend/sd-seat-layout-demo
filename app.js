@@ -611,6 +611,14 @@ function pointerSpread() {
 }
 
 function onPointerDown(e) {
+  // The Zones legend lives inside #stage (so it can float over the map) but is
+  // UI chrome, not the map surface. Left alone, its pointerdown would still be
+  // swallowed into the pan/tap state machine below — stage.setPointerCapture()
+  // included — which is fragile for a mouse/trackpad click that drifts a pixel
+  // or two, far more than a stable finger tap tends to. The bottom bar has no
+  // equivalent problem only because it happens to sit outside #stage.
+  if (e.target instanceof Element && e.target.closest(".legend")) return;
+
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   // Capture keeps a drag alive when the pointer leaves the stage, but it throws
   // for a pointer the browser no longer considers active. Track state first so
@@ -676,6 +684,11 @@ function panBy(dxClient, dyClient) {
 }
 
 function onPointerUp(e) {
+  // Mirrors the guard in onPointerDown: a pointer that started on the legend
+  // was never added below, so it must not fall into the pointers.size === 0
+  // branch and fire a tap from another gesture's leftover tapCandidate.
+  if (!pointers.has(e.pointerId)) return;
+
   pointers.delete(e.pointerId);
   if (pointers.size < 2) pinchLast = null;
   if (pointers.size === 1) {
