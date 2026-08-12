@@ -7,11 +7,12 @@ What the stadium seat demo can do today, from a user's point of view. For how it
 ![Full stadium view with 8 coloured zones and a collapsed Zones panel](docs/screenshots/overview.jpg)
 
 - Renders straight from a Figma-exported SVG (`stadium_correct_size.svg`) — 765 individually selectable seats across 3 floor bands, plus 35 stand sections, all derived from the file's layer names at load time.
-- Zooms from a full-stadium overview down to individual seat numbers, with labels that fade in progressively so the map never looks cluttered or empty:
-  - **Always visible:** the 35 section names (`D101`, `B111`, …).
-  - **From ~3× zoom:** floor band titles (`Front Floor`, `Mid Floor`, `Back Floor`) and row letters (`A`…`O`).
-  - **From ~6× zoom:** the seat number inside each seat.
-- Tapping a seat while still zoomed out doesn't try to hit a 10-pixel target — it zooms straight to that seat's band instead, so getting to a seat never takes more than two taps.
+- Every zone looks the same at rest: a coloured, named section shape. Tapping a floor band reveals the seats inside it instead of trying to render 765 tiny targets up front; tapping a stand section goes straight to the quantity picker, since it has no seats of its own.
+- Revealing a band fits the view to it and zooms in, with labels that fade in progressively so the map never looks cluttered or empty:
+  - **Always visible:** the 35 stand-section names and the 3 collapsed band names.
+  - **From ~3× zoom, once revealed:** the open band's title (`Front Floor`, `Mid Floor`, `Back Floor`) and row letters (`A`…`O`).
+  - **From ~6× zoom, once revealed:** the seat number inside each seat.
+- Tapping a different section — another band, a stand section, or empty backdrop — collapses whatever band was open. Tapping a seat while zoomed out below the pick threshold re-fits the view to its band instead of trying to hit a 10-pixel target.
 
 ![Deep zoom showing all three floor bands with row letters and seat numbers](docs/screenshots/seat-zoom-lod.jpg)
 

@@ -4,7 +4,7 @@
 // model is derived from its layer ids, so dropping in a re-export picks up the
 // changes without touching this file.
 
-const SVG_URL = "stadium_correct_size.svg";
+const SVG_URL = "stadium_correct_size_v2.svg";
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 const MIN_SCALE = 1;
@@ -59,11 +59,20 @@ const toastEl = document.getElementById("toast");
 const zones = new Map(); // key -> {key, name, color, price}
 const items = new Map(); // data-id -> {id, label, zoneKey, kind, els[]}
 const bandBoxes = new Map(); // zone key -> DOMRect, for tap-to-zoom
+const bandGroups = new Map(); // zone key -> the seat <g>, hidden until revealed
+const bandOverlays = new Map(); // zone key -> collapsed-state <rect> ("band" kind)
+const bandLabelGroups = new Map(); // zone key -> <g> of row/block labels, shown only revealed
+const bandNameLabels = new Map(); // zone key -> collapsed-state name <text>
 
 // The basket is either loose seats or a quantity in one section, never both:
 // `kind` says which, `ids` holds seats in tap order (so chips keep that order)
 // or the single section id, and `qty` applies to sections only.
 const selection = { kind: null, ids: [], qty: 1 };
+
+// Which floor band, if any, is showing its seats instead of its collapsed
+// section shape. Independent of `selection` — revealing isn't buying, floor
+// seats are still picked and priced individually once shown.
+let revealedBand = null;
 
 const view = { x: 0, y: 0, w: 0, h: 0 }; // current viewBox
 const world = { w: 0, h: 0 }; // full extent of the export
@@ -207,14 +216,48 @@ function outlineCentre(path) {
   return { x: x / samples, y: y / samples };
 }
 
-function text(cls, x, y, content) {
+function text(cls, x, y, content, parent = labels) {
   const el = document.createElementNS(SVG_NS, "text");
   el.setAttribute("class", cls);
   el.setAttribute("x", x);
   el.setAttribute("y", y);
   el.textContent = content;
-  labels.appendChild(el);
+  parent.appendChild(el);
   return el;
+}
+
+/**
+ * Geometry for a band's collapsed section shape.
+ *
+ * If the group carries a backing `<rect>` (a Figma-authored box sibling to
+ * the row groups), that is the intended shape and may use a translate()
+ * transform instead of x/y. Otherwise fall back to the seats' own bounding
+ * box, padded so it reads as a section rather than a tight crop around dots.
+ */
+function bandOverlayGeometry(group, box) {
+  const backing = Array.from(group.children).find(
+    (c) => c.tagName.toLowerCase() === "rect",
+  );
+  if (backing) {
+    const m = /translate\(\s*([-\d.]+)[ ,]+([-\d.]+)\s*\)/.exec(
+      backing.getAttribute("transform") || "",
+    );
+    const tx = m ? parseFloat(m[1]) : 0;
+    const ty = m ? parseFloat(m[2]) : 0;
+    return {
+      x: (parseFloat(backing.getAttribute("x")) || 0) + tx,
+      y: (parseFloat(backing.getAttribute("y")) || 0) + ty,
+      width: parseFloat(backing.getAttribute("width")),
+      height: parseFloat(backing.getAttribute("height")),
+    };
+  }
+  const pad = 10;
+  return {
+    x: box.x - pad,
+    y: box.y - pad,
+    width: box.width + pad * 2,
+    height: box.height + pad * 2,
+  };
 }
 
 function buildLabels(root) {
@@ -240,9 +283,25 @@ function buildLabels(root) {
     const id = group.getAttribute("id") || "";
     if (!id.startsWith("seat:")) continue;
     const bandName = id.slice(5);
+    const zoneKey = `floor-${bandName.toLowerCase()}`;
     const box = group.getBBox();
-    bandBoxes.set(`floor-${bandName.toLowerCase()}`, box);
-    text("lbl-block", box.x + box.width / 2, box.y - 14, `${bandName} Floor`);
+    bandBoxes.set(zoneKey, box);
+
+    // Labels shown only once the band is revealed: row gutters + the small
+    // title above the grid. Grouped so both toggle with the seat grid itself.
+    const revealLabels = document.createElementNS(SVG_NS, "g");
+    revealLabels.dataset.zone = zoneKey;
+    revealLabels.classList.add("band-fade", "band-hidden");
+    labels.appendChild(revealLabels);
+    bandLabelGroups.set(zoneKey, revealLabels);
+
+    text(
+      "lbl-block",
+      box.x + box.width / 2,
+      box.y - 14,
+      `${bandName} Floor`,
+      revealLabels,
+    );
 
     for (const row of Array.from(group.children)) {
       if (row.tagName.toLowerCase() !== "g") continue;
@@ -250,8 +309,45 @@ function buildLabels(root) {
       // One gutter per row now that a row spans the whole floor, and the letter
       // alone is unique — it is exactly the prefix of every seat in the row.
       const rowLetter = baseName(row.getAttribute("id") || "");
-      text("lbl-row", rowBox.x - 5, rowBox.y + rowBox.height / 2, rowLetter);
+      text(
+        "lbl-row",
+        rowBox.x - 5,
+        rowBox.y + rowBox.height / 2,
+        rowLetter,
+        revealLabels,
+      );
     }
+
+    // Collapsed state: one section-shaped overlay standing in for the whole
+    // band, plus its always-visible name — matches how a ring-tier section
+    // looks so the two read as the same kind of thing until tapped.
+    const geo = bandOverlayGeometry(group, box);
+    const overlay = document.createElementNS(SVG_NS, "rect");
+    overlay.setAttribute("x", geo.x);
+    overlay.setAttribute("y", geo.y);
+    overlay.setAttribute("width", geo.width);
+    overlay.setAttribute("height", geo.height);
+    overlay.setAttribute("rx", 12);
+    overlay.classList.add("band-fade");
+    // `labels` was appended to `root` before this loop runs, so inserting the
+    // overlay before it keeps every label (this one included) painted on top.
+    root.insertBefore(overlay, labels);
+    register("band", zoneKey, `${bandName} Floor`, zoneKey, overlay);
+    bandOverlays.set(zoneKey, overlay);
+
+    const nameLabel = text(
+      "lbl-band",
+      geo.x + geo.width / 2,
+      geo.y + geo.height / 2,
+      `${bandName} Floor`,
+    );
+    nameLabel.classList.add("band-fade");
+    bandNameLabels.set(zoneKey, nameLabel);
+
+    // Seats stay in the document (selection/pricing reads them) but fade out
+    // until the band is revealed.
+    group.classList.add("band-fade", "band-hidden");
+    bandGroups.set(zoneKey, group);
   }
 }
 
@@ -274,13 +370,26 @@ function prepareSeatChunks() {
   if (seatChunks.length) return;
 
   for (const group of svg.querySelectorAll('[id^="seat:"]')) {
+    const zoneKey = `floor-${group.getAttribute("id").slice(5).toLowerCase()}`;
     for (const row of group.children) {
       const seats = [...row.children]
         .map((s) => {
-          const x = parseFloat(s.getAttribute("x"));
-          const y = parseFloat(s.getAttribute("y"));
-          const w = parseFloat(s.getAttribute("width"));
-          const h = parseFloat(s.getAttribute("height"));
+          // `<rect>` seats carry their geometry as attributes — cheap, no
+          // layout. A seat authored as anything else (e.g. a circle drawn as
+          // a `<path>`) has no x/y/width/height to read, so fall back to its
+          // bbox; paid once here, spread over a one-time build, not on the
+          // per-frame gesture path this project is otherwise careful about.
+          let x = parseFloat(s.getAttribute("x"));
+          let y = parseFloat(s.getAttribute("y"));
+          let w = parseFloat(s.getAttribute("width"));
+          let h = parseFloat(s.getAttribute("height"));
+          if (Number.isNaN(x) || Number.isNaN(w)) {
+            const box = s.getBBox();
+            x = box.x;
+            y = box.y;
+            w = box.width;
+            h = box.height;
+          }
           // just the number inside the 10px dot; the row is in the gutter
           return {
             cx: x + w / 2,
@@ -304,6 +413,7 @@ function prepareSeatChunks() {
         labels.appendChild(el);
         seatChunks.push({
           el,
+          zoneKey,
           seats: run,
           built: false,
           visible: false,
@@ -374,7 +484,12 @@ function cullSeatLabels(show) {
 
   for (const c of seatChunks) {
     const visible =
-      show && c.x1 >= view.x && c.x0 <= x1 && c.y1 >= view.y && c.y0 <= y1;
+      show &&
+      c.zoneKey === revealedBand &&
+      c.x1 >= view.x &&
+      c.x0 <= x1 &&
+      c.y1 >= view.y &&
+      c.y0 <= y1;
     if (visible === c.visible) continue;
     if (visible && !c.built) {
       if (budget-- <= 0) {
@@ -481,6 +596,30 @@ function scheduleRender() {
   });
 }
 
+// A discrete "jump to this box" (revealing a band, or the zoomed-out
+// tap-to-band shortcut) used to set `view` in one step, which read as a hard
+// cut right as the seats popped in — the two changes landing on the same
+// frame is what made it feel glitchy. Tweening the camera over a few frames
+// instead gives the eye something to track.
+let viewAnim = null;
+const easeOutCubic = (t) => 1 - (1 - t) ** 3;
+
+function animateView(target, duration = 420) {
+  viewAnim = {
+    x0: view.x,
+    y0: view.y,
+    w0: view.w,
+    h0: view.h,
+    x1: target.x,
+    y1: target.y,
+    w1: target.w,
+    h1: target.h,
+    t0: performance.now(),
+    duration,
+  };
+  scheduleRender();
+}
+
 /** Commit immediately. Used for the first paint, which must not wait for a
  *  frame that a throttled or hidden tab may not deliver for a long time. */
 function renderNow() {
@@ -494,6 +633,19 @@ let lastK = 0;
 
 /** The only place the view touches the DOM, and at most once per frame. */
 function commit() {
+  if (viewAnim) {
+    const t = Math.min(
+      1,
+      (performance.now() - viewAnim.t0) / viewAnim.duration,
+    );
+    const e = easeOutCubic(t);
+    view.x = viewAnim.x0 + (viewAnim.x1 - viewAnim.x0) * e;
+    view.y = viewAnim.y0 + (viewAnim.y1 - viewAnim.y0) * e;
+    view.w = viewAnim.w0 + (viewAnim.w1 - viewAnim.w0) * e;
+    view.h = viewAnim.h0 + (viewAnim.h1 - viewAnim.h0) * e;
+    if (t >= 1) viewAnim = null;
+    else scheduleRender(); // more frames to go
+  }
   clampView();
   svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${view.h}`);
 
@@ -539,15 +691,19 @@ function fitTo(box, padding = 0.1) {
   const scale =
     Math.min(rect.width / box.width, safeHeight / box.height) /
     (1 + padding * 2);
-  view.w = Math.min(rect.width, rect.height / aspect) / scale;
-  view.h = view.w * aspect;
-  view.x = box.x + box.width / 2 - view.w / 2;
-  // shifting the viewport down moves the content up, clear of the bar
-  view.y = box.y + box.height / 2 - view.h / 2 + reserved / 2 / scale;
-  scheduleRender();
+  const w = Math.min(rect.width, rect.height / aspect) / scale;
+  const h = w * aspect;
+  animateView({
+    x: box.x + box.width / 2 - w / 2,
+    // shifting the viewport down moves the content up, clear of the bar
+    y: box.y + box.height / 2 - h / 2 + reserved / 2 / scale,
+    w,
+    h,
+  });
 }
 
 function resetView() {
+  viewAnim = null;
   view.x = 0;
   view.y = 0;
   view.w = world.w;
@@ -568,6 +724,7 @@ function toUser(clientX, clientY) {
 
 /** Zoom by `factor`, holding the given client point still on screen. */
 function zoomAt(factor, clientX, clientY) {
+  viewAnim = null; // a manual gesture always wins over an in-flight fit
   const before = toUser(clientX, clientY);
   view.w = clamp(view.w / factor, world.w / MAX_SCALE, world.w / MIN_SCALE);
   view.h = view.w * (world.h / world.w);
@@ -677,6 +834,7 @@ function onPointerMove(e) {
 function panBy(dxClient, dyClient) {
   const s = viewScale();
   if (!s) return;
+  viewAnim = null; // a manual gesture always wins over an in-flight fit
   view.x -= dxClient / s;
   view.y -= dyClient / s;
   scheduleRender();
@@ -722,6 +880,44 @@ function onWheel(e) {
   hideHint();
 }
 
+/* ---------------------------------------------------------------- band reveal */
+
+/**
+ * Only one band's seats are ever shown at a time — revealing a new one always
+ * closes whatever was open, mirroring the seat/section mutual-exclusivity
+ * rule below. Seats are too small to aim at right after revealing, so this
+ * also fits the view to the band (the same fit the zoomed-out tap shortcut
+ * already used).
+ */
+function revealBand(zoneKey) {
+  if (revealedBand === zoneKey) return;
+  if (revealedBand) hideBand(revealedBand);
+  revealedBand = zoneKey;
+  showBand(zoneKey);
+  fitTo(bandBoxes.get(zoneKey));
+}
+
+function collapseBand() {
+  if (!revealedBand) return;
+  hideBand(revealedBand);
+  revealedBand = null;
+}
+
+function showBand(zoneKey) {
+  bandGroups.get(zoneKey).classList.remove("band-hidden");
+  bandLabelGroups.get(zoneKey).classList.remove("band-hidden");
+  bandOverlays.get(zoneKey).classList.add("band-hidden");
+  bandNameLabels.get(zoneKey).classList.add("band-hidden");
+  scheduleRender(); // re-run cullSeatLabels against the newly-open band
+}
+
+function hideBand(zoneKey) {
+  bandGroups.get(zoneKey).classList.add("band-hidden");
+  bandLabelGroups.get(zoneKey).classList.add("band-hidden");
+  bandOverlays.get(zoneKey).classList.remove("band-hidden");
+  bandNameLabels.get(zoneKey).classList.remove("band-hidden");
+}
+
 /* ------------------------------------------------------------------ selection */
 
 function handleTap(target, clientX, clientY) {
@@ -734,13 +930,23 @@ function handleTap(target, clientX, clientY) {
   }
 
   if (!el) {
+    collapseBand();
     clearSelection();
     render();
     return;
   }
 
+  // A section with no seats of its own is bought by quantity; a band's tap
+  // instead reveals the seats inside it — never a purchase by itself.
+  if (el.dataset.kind === "band") {
+    revealBand(el.dataset.zone);
+    hideHint();
+    return;
+  }
+
   // A seat is a 10px dot on a 4016px canvas: below this zoom you cannot
-  // meaningfully aim at one, so the tap means "take me there" instead.
+  // meaningfully aim at one, so the tap means "take me there" instead. Only
+  // reachable for the open band — every other band's seats stay hidden.
   const scale = world.w / view.w;
   if (el.dataset.kind === "seat" && scale < SEAT_PICK_SCALE) {
     const box = bandBoxes.get(el.dataset.zone);
@@ -749,6 +955,12 @@ function handleTap(target, clientX, clientY) {
       hideHint();
       return;
     }
+  }
+
+  // Tapping a section, or a seat outside the open band, means the user has
+  // moved on — close whatever was revealed.
+  if (el.dataset.kind === "section" || el.dataset.zone !== revealedBand) {
+    collapseBand();
   }
 
   toggle(el.dataset.id);
@@ -941,6 +1153,7 @@ function bindControls() {
   window.addEventListener("keydown", (e) => {
     const step = view.w * 0.12;
     if (e.key === "Escape") {
+      collapseBand();
       clearSelection();
       render();
     } else if (e.key === "+" || e.key === "=") zoomCentre(1.6);

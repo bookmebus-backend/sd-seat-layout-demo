@@ -466,10 +466,37 @@ body {
   cursor: pointer;
 }
 
+/* Revealing/collapsing a band fades it rather than popping display on/off, so
+   it doesn't land on the same frame as the camera settling into fitTo() and
+   read as a jump-cut. Opacity alone isn't enough to make a hidden band
+   untappable, though: `pointer-events` is inherited, but [data-kind="seat"]
+   sets its own `pointer-events: all` below, which — being a value on the
+   element itself rather than inherited — wins over whatever the ancestor
+   says. The descendant rule here restates `none` with higher specificity so
+   a hidden band's seats can't still be hit while invisible. */
+.band-fade {
+  transition: opacity 260ms var(--ease);
+}
+
+.band-hidden {
+  opacity: 0;
+}
+
+/* [data-kind] rules below set their own pointer-events at equal (0,1,0)
+   specificity, so a plain `.band-hidden` selector here would only win by
+   source order — fragile. Pairing the class with `[data-kind]` makes this
+   (0,2,0), which beats any single [data-kind="…"] rule regardless of where
+   it sits, so a hidden band's seats can't still be hit while invisible. */
+[data-kind].band-hidden,
+.band-hidden [data-kind] {
+  pointer-events: none;
+}
+
 /* non-scaling-stroke gets constant on-screen width from the renderer itself.
    Sizing it with calc(Npx * var(--k)) instead meant every zoom frame had to
    rewrite --k and re-style all 39 sections. */
-[data-kind="section"] {
+[data-kind="section"],
+[data-kind="band"] {
   stroke: #23262d;
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
@@ -486,7 +513,8 @@ body {
 }
 
 @media (hover: hover) {
-  [data-kind="section"]:hover {
+  [data-kind="section"]:hover,
+  [data-kind="band"]:hover {
     stroke: #ffffffaa;
     stroke-width: 2;
   }
@@ -517,12 +545,14 @@ body {
 }
 
 .lbl-section,
-.lbl-block {
+.lbl-block,
+.lbl-band {
   fill: #fff;
   stroke: #1a1c22;
   stroke-width: 2.5;
   vector-effect: non-scaling-stroke;
   paint-order: stroke fill;
+  pointer-events: none;
 }
 
 .lbl-section {
@@ -530,6 +560,12 @@ body {
 }
 
 .lbl-block {
+  font-size: calc(15px * var(--k));
+}
+
+/* the collapsed band's name, standing in for a section label — always
+   visible like .lbl-section, not gated by the row/seat LOD rules below */
+.lbl-band {
   font-size: calc(15px * var(--k));
 }
 

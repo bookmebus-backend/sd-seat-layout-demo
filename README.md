@@ -1,6 +1,6 @@
 # Stadium Seat Demo
 
-An interactive seat map built directly from the Figma export `stadium_correct_size.svg`. Zoom and pan the stadium, pick individual seats or buy a whole section by quantity, and the bottom bar keeps a running total.
+An interactive seat map built directly from the Figma export `stadium_correct_size.svg`. Every zone on the map renders as a section; tap one to reveal its seats and pick individually, or — if it has no seats of its own — buy it by quantity. The bottom bar keeps a running total.
 
 Prototype only — no build step, no bundler, no backend. The one network request is Poppins from Google Fonts; the page falls back to system fonts and stays fully usable offline.
 
@@ -21,11 +21,11 @@ Opening `index.html` straight from the filesystem will **not** work: the page `f
 
 Everything is derived from the layer ids at runtime, so re-exporting the SVG picks up the changes without editing any code.
 
-| Layer                                 | Becomes                                                                                                                                  |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `seat:Front`, `seat:Mid`, `seat:Back` | Row bands on the floor. Each holds 5 row groups × 51 rects = one selectable seat, labelled `<row><number>` → `A1` … `O51`. 765 in total. |
-| Named root paths (`D101`, `B111`, …)  | Selectable sections. Users pick the whole section, not a seat inside it.                                                                 |
-| `unnamed` (bowl, pitch, outer stands) | Backdrop. Never interactive.                                                                                                             |
+| Layer                                 | Becomes                                                                                                                                                                                                                                                         |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `seat:Front`, `seat:Mid`, `seat:Back` | Row bands on the floor. Each holds 5 row groups × 51 rects = one selectable seat, labelled `<row><number>` → `A1` … `O51`. 765 in total. Rendered collapsed as one tappable section shape until revealed — see [Revealing floor bands](#revealing-floor-bands). |
+| Named root paths (`D101`, `B111`, …)  | Selectable sections. Users pick the whole section, not a seat inside it.                                                                                                                                                                                        |
+| `unnamed` (bowl, pitch, outer stands) | Backdrop. Never interactive.                                                                                                                                                                                                                                    |
 
 ### Why rows are flat
 
@@ -75,6 +75,14 @@ There is no toolbar — the map is the whole screen. Keyboard covers the rest: `
 
 A tap only registers if the pointer barely moved — otherwise every pan would end in an accidental selection.
 
+## Revealing floor bands
+
+Every zone on the map looks the same at rest — a coloured, labelled section shape — including the three floor bands, even though each is really 5 rows × 51 individual seats underneath. Tapping a band's shape reveals those seats in place (fits the view to the band, since seats are too small to aim at right after) and hides the collapsed shape; tapping anything else — a different band, a ring-tier section, or empty backdrop — collapses it again. Only one band is ever open at a time.
+
+The collapsed shape comes from a backing `<rect>` in the SVG if the band group has one (a sibling of the row groups, not itself a row); otherwise it falls back to the seats' own padded bounding box. The current export has no such rect, so all three bands use the fallback today — the rect path exists so a future Figma export can supply a tighter outline without a code change.
+
+Revealing is not buying: floor seats are still priced and selected individually once shown, exactly as below. Collapsing a band only hides its seats visually — anything already picked in it stays in the basket.
+
 ## Selecting
 
 A basket is **either loose seats or a quantity in one section, never both** — the two are different ways of buying, so mixing them has no meaning.
@@ -87,10 +95,10 @@ The bottom bar only exists while something is selected: it slides up and fades i
 
 Tapping across the two modes switches rather than refuses — the old selection clears and a toast says why, since a tap that silently does nothing reads as a broken map. Re-tapping the **selected** section is a no-op, so a stray tap cannot discard a quantity you just set; seats still toggle off, since that is the only way to drop one.
 
-Two zoom-dependent behaviours make the 10px seats usable on a 4016px canvas:
+Two zoom-dependent behaviours make the 10px seats usable on a 4016px canvas, both scoped to whichever band is currently revealed:
 
-- Below 4× zoom, tapping a seat zooms to fit its band instead of selecting the seat.
-- Labels are level-of-detail: section names are always drawn, band titles and row letters appear around 3×, seat numbers inside the dots around 6×. Each row has one gutter letter at the far left of the floor, and it is exactly the prefix of every seat in that row. Section and band labels counter-scale so they hold a constant on-screen size; row letters and seat numbers are sized in map units so they stay part of the seat grid.
+- Below 4× zoom, tapping a seat re-fits the view to its band instead of selecting the seat — the same fit revealing already performs, useful if the user zooms back out without collapsing.
+- Labels are level-of-detail: section and collapsed-band names are always drawn, the revealed band's own title and row letters appear around 3×, seat numbers inside the dots around 6×. Each row has one gutter letter at the far left of the floor, and it is exactly the prefix of every seat in that row. Section, band, and title labels counter-scale so they hold a constant on-screen size; row letters and seat numbers are sized in map units so they stay part of the seat grid.
 
 ## Performance
 
